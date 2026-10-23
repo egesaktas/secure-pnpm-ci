@@ -1,0 +1,156 @@
+# Reusable, security-hardened CI for pnpm + Vite + Cloudflare Workers projects.
+#
+# Usage from another repository:
+#
+#   jobs:
+#     ci:
+#       uses: egesaktas/secure-pnpm-ci/.github/workflows/ci.yml@v1
+#       permissions:
+#         contents: read
+#
+# Every third-party action is pinned to a full commit SHA (tags can be moved,
+# commits cannot), every job declares the minimum token permissions it needs,
+# and every downloaded tool is verified against a pinned SHA-256 checksum.
+
+name: ci
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory that contains package.json and pnpm-lock.yaml.
+        type: string
+        default: "."
+      node-version:
+        description: Node.js version to use.
+        type: string
+        default: "24"
+      run-tests:
+        description: Run `pnpm test`.
+        type: boolean
+        default: true
+      audit-level:
+        description: Minimum severity that fails `pnpm audit` (low, moderate, high, critical).
+        type: string
+        default: high
+      secret-scan:
+        description: Scan the full git history for leaked secrets with gitleaks.
+        type: boolean
+        default: true
+      workflow-audit:
+        description: Audit the repository's GitHub Actions workflows with zizmor and actionlint.
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  check:
+    name: lint, typecheck, test, build, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: ${{ inputs.working-directory }}/package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Test
+        if: ${{ inputs.run-tests }}
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Audit dependencies
+        env:
+          AUDIT_LEVEL: ${{ inputs.audit-level }}
+        run: pnpm audit --audit-level "$AUDIT_LEVEL"
+
+  secret-scan:
+    name: secret scan (gitleaks)
+    if: ${{ inputs.secret-scan }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks (checksum verified)
+        run: |
+          curl -sSfL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          rm gitleaks.tar.gz
+
+      - name: Scan git history
+        run: gitleaks git --redact -v .
+
+  workflow-audit:
+    name: workflow audit (zizmor, actionlint)
+    if: ${{ inputs.workflow-audit }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - name: Check out code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Audit workflows with zizmor
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          version: 1.30.0
+          advanced-security: false
+          annotations: true
+          online-audits: false
+
+      - name: Install actionlint (checksum verified)
+        run: |
+          curl -sSfL -o actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check --strict
+          tar -xzf actionlint.tar.gz actionlint
+          rm actionlint.tar.gz
+
+      - name: Lint workflows with actionlint
+        run: ./actionlint -color

@@ -1,0 +1,26 @@
+# Dependabot keeps the pinned action SHAs and the example app's packages up to date.
+# Updates arrive as pull requests, so every bump is reviewed and tested by CI.
+# The cooldown waits a week after a release before proposing it, which gives the
+# community time to spot a compromised version before it reaches this repository.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /example
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      example-dependencies:
+        patterns: ["*"]

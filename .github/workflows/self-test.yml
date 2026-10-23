@@ -1,0 +1,25 @@
+# Runs the reusable CI against the example app on every push and pull request,
+# so any change to ci.yml is proven on a real project before it is released.
+
+name: self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  example:
+    name: example app
+    # The newer `$/` self-repository syntax is not understood by actionlint 1.7.12 yet.
+    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository]
+    permissions:
+      contents: read
+    with:
+      working-directory: example
