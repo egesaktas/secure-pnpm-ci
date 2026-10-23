@@ -24,3 +24,8 @@ updates:
     groups:
       example-dependencies:
         patterns: ["*"]
+    ignore:
+      # Keep @types/node on the same major version as the Node.js runtime (24),
+      # so the types never describe APIs that the runtime does not have.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
